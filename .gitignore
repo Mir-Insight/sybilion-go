@@ -11,3 +11,6 @@ go.work.sum
 
 # Built example artifact (do not check in)
 /example/example
+
+# Wrangler local cache (Cloudflare Pages CLI)
+.wrangler/
