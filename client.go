@@ -7,7 +7,7 @@
 //	c := sybilion.New(sybilion.Options{Token: os.Getenv("SYBILION_API_TOKEN")})
 //	me, _, err := c.DefaultAPI().ApiV1MeGet(ctx).Execute()
 //
-// See https://docs.sybilion.com for full guides and feature walkthroughs.
+// See https://sybilion.dev/docs/ for full guides and feature walkthroughs.
 package sybilion
 
 import (

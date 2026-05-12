@@ -1,6 +1,6 @@
 # Sybilion Go SDK
 
-Official Go client for the [Sybilion API](https://docs.sybilion.com).
+Official Go client for the [Sybilion API](https://sybilion.dev/docs/).
 
 ```bash
 go get go.sybilion.dev/sybilion@latest
@@ -47,7 +47,7 @@ The token is an API key (`sk_ops_...`) created in the Developers Portal, or a da
 
 ## Documentation
 
-Full guides, feature walkthroughs, API reference, and SDK patterns: **<https://docs.sybilion.com>**.
+Full guides, feature walkthroughs, API reference, and SDK patterns: **<https://sybilion.dev/docs/>**.
 
 For LLM / codegen contexts the single-file cheat sheet lives at [`LLM_SDK_GUIDE.md`](./LLM_SDK_GUIDE.md).
 
