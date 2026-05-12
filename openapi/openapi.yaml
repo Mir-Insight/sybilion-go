@@ -1,0 +1,1092 @@
+openapi: 3.0.3
+info:
+  title: Operational API
+  version: 0.1.0
+  description: |
+    Developer API for forecast pipelines. Authenticate with `Authorization: Bearer` using either
+    an Auth0 access token (dashboard) or an API key (`sk_ops_...`).
+servers:
+  - url: http://localhost:8080
+    description: Default local base URL (override in SDK clients for staging/production).
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: All components healthy (no component in `error`)
+          content:
+            application/json:
+              schema:
+                type: object
+        '503':
+          description: Degraded — at least one component is in `error` (e.g. database ping, Temporal namespace check)
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/me:
+    get:
+      summary: Current user, balances, and usage tier
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+  /api/v1/me/auto-recharge:
+    patch:
+      summary: Update auto-recharge preferences (threshold, target, monthly cap)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutoRechargePatch'
+      responses:
+        '204':
+          description: Updated
+        '400':
+          description: Invalid body (e.g. target not above threshold when enabled)
+        '401':
+          description: Unauthorized
+  /api/v1/tiers:
+    get:
+      summary: List the configured tier ladder, current tier, and progress
+      description: |
+        Returns the per-environment tier ladder (limits + qualification thresholds)
+        along with the caller's current `api_usage_tier`, the next reachable level
+        (or `null` if already on the highest), and the caller's progress toward it
+        (`lifetime_paid_cents`, `payment_count`, and the largest single Stripe
+        payment observed).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TiersResponse'
+        '401':
+          description: Unauthorized
+        '429':
+          description: Rate limited (general RPM)
+  /api/v1/usage:
+    get:
+      summary: Paginated usage (charged tasks)
+      description: |
+        Paginated `usage_events` for the authenticated user. Each row is one billing
+        charge (async job completion or sync `ChargeOnSuccess`). When present, `endpoint`
+        comes from the linked ledger debit metadata (per-task pricing audit).
+
+        Pagination is page-based; callers control the sort column and direction via the
+        `sort` and `order` query parameters.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: 1-indexed page number.
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Page size. Capped at 200.
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: sort
+          in: query
+          description: Column to sort by.
+          required: false
+          schema:
+            type: string
+            enum: [id, created_at, eur_cents_charged, units]
+            default: id
+        - name: order
+          in: query
+          description: Sort direction.
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [usage_events, pagination]
+                properties:
+                  usage_events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UsageEvent'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '400':
+          description: Invalid query parameter (bad page/limit/sort/order)
+        '401':
+          description: Unauthorized
+        '429':
+          description: Rate limited (general RPM)
+  /api/v1/jobs:
+    get:
+      summary: Paginated list of the caller's async jobs
+      description: |
+        Returns the authenticated user's `async_jobs` as a paginated list. Heavy fields
+        (`payload`, `artifact_manifest`) are intentionally omitted; fetch full per-job
+        state via `GET /api/v1/forecasts/{id}` (only forecast jobs are supported today).
+
+        Settled rows that have aged past `FORECAST_API_VISIBILITY_TTL` are filtered from
+        the page slice (same gate as the per-job read endpoint), so this endpoint never
+        surfaces a row that the detail endpoint would 404 on.
+
+        `pagination.total` and `pagination.total_pages` count **all** matching DB rows
+        for the user (before visibility filtering). A page may therefore contain fewer
+        than `limit` visible jobs while totals still reflect hidden aged-out rows.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Page size. Capped at 200.
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [id, created_at, settled_at, eur_cents_final]
+            default: created_at
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: status
+          in: query
+          description: Optional status filter.
+          required: false
+          schema:
+            type: string
+            enum: [queued, running, completed, failed, canceled]
+        - name: pipeline_type
+          in: query
+          description: Optional pipeline type filter (today only "forecast" is emitted).
+          required: false
+          schema:
+            type: string
+            maxLength: 64
+            pattern: '^[a-z0-9_-]+$'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs, pagination]
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JobSummary'
+                  pagination:
+                    $ref: '#/components/schemas/JobsPagination'
+        '400':
+          description: Invalid query parameter
+        '401':
+          description: Unauthorized
+        '429':
+          description: Rate limited (per-user general RPM bucket shared with other authenticated reads)
+  /api/v1/api-keys:
+    get:
+      summary: List API keys (metadata only)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_keys]
+                properties:
+                  api_keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/APIKeySummary'
+        '401':
+          description: Unauthorized
+        '429':
+          description: Rate limited (general RPM)
+    post:
+      summary: Create API key
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+      responses:
+        '201':
+          description: Created — full secret returned once only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAPIKeyResponse'
+        '400':
+          description: Missing or empty name
+        '401':
+          description: Unauthorized
+        '429':
+          description: Rate limited (general RPM)
+  /api/v1/api-keys/{id}:
+    delete:
+      summary: Revoke an API key
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Revoked
+        '400':
+          description: Invalid id
+        '401':
+          description: Unauthorized
+        '404':
+          description: Key not found or already revoked
+        '429':
+          description: Rate limited (general RPM)
+  /api/v1/forecasts:
+    post:
+      summary: Start async forecast job (Temporal + artifact store)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForecastRequestV1'
+      responses:
+        '202':
+          description: Accepted — optional `Location` header echoes `poll_url`
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForecastAcceptedResponse'
+        '400':
+          description: Malformed JSON body
+        '401':
+          description: Unauthorized
+        '402':
+          description: Insufficient available credits for pricing hold
+        '413':
+          description: Request body exceeds configured max bytes
+        '422':
+          description: Payload failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '429':
+          description: Too many concurrent jobs for tier, or rate limited
+        '502':
+          description: Artifact store or Temporal start failure after job row was created
+        '503':
+          description: Forecast backend not configured
+  /api/v1/forecasts/{id}:
+    get:
+      summary: Poll forecast job status and artifact metadata (downloads via artifacts sub-path)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForecastJobResponse'
+        '400':
+          description: Invalid job id
+        '401':
+          description: Unauthorized
+        '404':
+          description: Forecast job not found, not owned by caller, or aged out of the API visibility window (see FORECAST_API_VISIBILITY_TTL)
+        '429':
+          description: Rate limited (general RPM)
+  /api/v1/forecasts/{id}/artifacts/{name}:
+    get:
+      summary: Stream a single output file (proxied from internal artifact store; no gs:// URLs)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Binary body
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: Partial content (Range)
+        '400':
+          description: Invalid path or artifact name
+        '401':
+          description: Unauthorized
+        '404':
+          description: Forecast job/artifact not found, not owned by caller, or aged out of the API visibility window (see FORECAST_API_VISIBILITY_TTL)
+        '409':
+          description: Job exists but is not completed/settled yet
+        '413':
+          description: Artifact exceeds download size limit
+        '429':
+          description: Rate limited (general RPM)
+        '500':
+          description: Storage or internal error
+        '503':
+          description: Artifact store not configured
+  /api/v1/drivers:
+    post:
+      summary: Recommend ranked driver-dataset candidates (synchronous proxy)
+      description: |
+        Validates the request with the per-version recommend validator and proxies
+        it to the upstream Recommend service. The response from the upstream is
+        passed through verbatim (status code, body, content type), so any 4xx
+        validation error from the upstream is visible to the caller.
+
+        This is a synchronous endpoint billed via `ChargeOnSuccess`. Pricing is
+        sourced exclusively from the `BILLING_ENDPOINT_PRICING` JSON map under
+        the `"drivers"` key (the single source of truth for credit pricing —
+        see [BILLING.md](https://github.com/sibilion/developers-portal-api/blob/main/docs/BILLING.md)).
+
+        - 402 if the user's available credit balance is below the per-call base
+          fee (`base` field of the `drivers` pricing spec). The handler does
+          not run and no upstream call is made. (Note: the user-facing balance
+          on `GET /api/v1/me` is exposed as `available_eur_cents`; pricing and
+          the 402 pre-check are evaluated internally in credits.)
+        - On any 2xx, the charge is `rate * len(data.drivers[]) + base`,
+          where `data.drivers[]` is the array nested inside the upstream
+          Recommend service's envelope
+          (`{"status":..,"message":..,"data":{"drivers":[...]}}`). Example
+          spec: `{"drivers":{"type":"per_unit","metric":"drivers_items_returned","rate":1,"base":1}}`
+          (one credit per returned driver, plus a one-credit base fee). To
+          collapse pricing to a flat fee swap the entry for
+          `{"drivers":{"type":"flat_fee","credits":1}}`.
+        - On any non-2xx (validation 422, upstream 5xx, transport 502), no charge is recorded.
+        - Retries with the same `X-Request-ID` are idempotent on the ledger.
+
+        Returns 503 when `RECOMMEND_API_KEY` is not configured.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendRequestV1'
+      responses:
+        '200':
+          description: Ranked candidates from the upstream Recommend service (body and content type passed through).
+        '400':
+          description: Malformed JSON body
+        '402':
+          description: Insufficient credits (handler did not run, no upstream call was made)
+        '413':
+          description: Request body exceeds RECOMMEND_MAX_BODY_BYTES
+        '422':
+          description: Payload failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '429':
+          description: Rate limited (per-user pipeline bucket)
+        '502':
+          description: Upstream Recommend service transport error
+        '503':
+          description: Recommend service not configured (RECOMMEND_API_KEY empty)
+  /api/v1/billing/checkout:
+    post:
+      summary: Stripe Checkout URL (variable top-up, min €5)
+      description: |
+        JSON body: `amount_cents` (integer, min 500 for €5.00) and optional `currency` (default `eur`).
+        The inline price is attached to the Stripe Product set via `STRIPE_PRODUCT_ID` so the invoice
+        line item shows the product name and inherits its `tax_code`. Returns 501 if the product is not configured.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+      responses:
+        '200':
+          description: 'OK — `{ "url": "https://checkout.stripe.com/…" }`'
+        '400':
+          description: amount below min or above max
+        '501':
+          description: Stripe not configured
+  /api/v1/billing/portal:
+    post:
+      summary: Stripe Customer Portal URL (billing history and receipts as configured in Stripe Dashboard)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    MeResponse:
+      type: object
+      required: [user_id, balance_eur_cents, available_eur_cents, api_usage_tier, lifetime_paid_cents, payment_count, has_ever_paid, euro_tranches]
+      description: |
+        Authenticated user snapshot. Monetary fields are exposed as integer EUR
+        cents (1 EUR = 100 cents). Internally the billing system uses credits;
+        the API converts at this boundary using BILLING_CREDITS_PER_EURO.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        balance_eur_cents:
+          type: integer
+          format: int64
+          description: Ledger sum exposed as EUR cents.
+        available_eur_cents:
+          type: integer
+          format: int64
+          description: balance_eur_cents minus active holds for in-flight async jobs.
+        api_usage_tier:
+          type: integer
+        lifetime_paid_cents:
+          type: integer
+          format: int64
+        payment_count:
+          type: integer
+        has_ever_paid:
+          type: boolean
+        euro_tranches:
+          type: array
+          items:
+            $ref: '#/components/schemas/EuroTranche'
+          description: Active grants (non-empty, unexpired). Consumed in expires_at ascending order.
+        signup_trial:
+          type: object
+          nullable: true
+          description: Present when a signup (free) trial tranche was granted. Omitted for users with no trial or before grant.
+          properties:
+            granted_at:
+              type: string
+              format: date-time
+            expires_at:
+              type: string
+              format: date-time
+              description: Omitted if the grant row is missing (abnormal)
+            initial_eur_cents:
+              type: integer
+              format: int64
+            remaining_eur_cents:
+              type: integer
+              format: int64
+        auto_recharge:
+          $ref: '#/components/schemas/AutoRechargeState'
+    EuroTranche:
+      type: object
+      required: [id, source, initial_eur_cents, remaining_eur_cents, expires_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          description: One of signup_trial, stripe, partner, legacy. Operator-issued grants may set a custom value.
+        initial_eur_cents:
+          type: integer
+          format: int64
+        remaining_eur_cents:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    TierConfig:
+      type: object
+      required:
+        - level
+        - min_lifetime_paid_cents
+        - min_payment_count
+        - min_single_payment_cents
+        - general_rpm
+        - sync_billed_rpm
+        - max_concurrent_jobs
+      properties:
+        level:
+          type: integer
+          description: Tier level identifier (0 is the baseline).
+        min_lifetime_paid_cents:
+          type: integer
+          format: int64
+          description: Minimum cumulative Stripe payment (in cents) required for this tier.
+        min_payment_count:
+          type: integer
+          description: Minimum number of completed Stripe payments required for this tier.
+        min_single_payment_cents:
+          type: integer
+          format: int64
+          description: Minimum single Stripe payment amount (in cents) required for this tier; 0 means no constraint.
+        general_rpm:
+          type: integer
+          description: Per-minute cap on general authenticated /api/v1/* requests at this tier.
+        sync_billed_rpm:
+          type: integer
+          description: Per-minute cap on synchronous billed endpoints (e.g. POST /drivers) at this tier.
+        max_concurrent_jobs:
+          type: integer
+          description: Cap on the user's in-flight async_jobs (pending/queued/running) at this tier.
+    TiersResponse:
+      type: object
+      required: [current_tier, next_tier, progress, tiers]
+      properties:
+        current_tier:
+          type: integer
+          description: The caller's current api_usage_tier.
+        next_tier:
+          type: integer
+          nullable: true
+          description: Lowest level greater than current_tier in the ladder, or null when already at the top.
+        progress:
+          type: object
+          required: [lifetime_paid_cents, payment_count, max_single_payment_cents]
+          properties:
+            lifetime_paid_cents:
+              type: integer
+              format: int64
+            payment_count:
+              type: integer
+            max_single_payment_cents:
+              type: integer
+              format: int64
+              description: Largest single Stripe payment amount (in cents) observed for the caller; 0 if none.
+        tiers:
+          type: array
+          description: Configured tier ladder, sorted ascending by level.
+          items:
+            $ref: '#/components/schemas/TierConfig'
+    AutoRechargeState:
+      type: object
+      required: [enabled, below_eur_cents, target_eur_cents, monthly_cap_cents, meter_cents, has_stripe_customer]
+      properties:
+        enabled:
+          type: boolean
+        below_eur_cents:
+          type: integer
+          format: int64
+          description: When the available balance drops below this many EUR cents, recharge fires.
+        target_eur_cents:
+          type: integer
+          format: int64
+          description: Target balance to reach after a recharge, in EUR cents.
+        monthly_cap_cents:
+          type: integer
+          format: int64
+          description: EUR cents charged via auto-recharge per UTC calendar month; 0 = no cap
+        meter_cents:
+          type: integer
+          format: int64
+        meter_month:
+          type: string
+          format: date
+          nullable: true
+          description: UTC month start for meter_cents, if any charges recorded this month
+        has_stripe_customer:
+          type: boolean
+          description: Whether a Stripe customer id is stored (required for auto-recharge to run)
+    AutoRechargePatch:
+      type: object
+      required: [enabled, below_eur_cents, target_eur_cents, monthly_cap_cents]
+      properties:
+        enabled:
+          type: boolean
+        below_eur_cents:
+          type: integer
+          format: int64
+          description: Trigger threshold in EUR cents (>= 1 when enabled).
+        target_eur_cents:
+          type: integer
+          format: int64
+          description: Target balance in EUR cents (> below_eur_cents when enabled).
+        monthly_cap_cents:
+          type: integer
+          format: int64
+    CheckoutRequest:
+      type: object
+      properties:
+        amount_cents:
+          type: integer
+          format: int64
+          description: Min 500 (€5.00) by default; server-enforced
+        currency:
+          type: string
+          default: eur
+    UsageEvent:
+      type: object
+      required: [id, units, eur_cents_charged, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        units:
+          type: integer
+          format: int64
+        eur_cents_charged:
+          type: integer
+          format: int64
+          description: EUR cents debited for this usage row (1 EUR = 100 cents).
+        created_at:
+          type: string
+          description: Timestamp (ISO-8601 text from the database)
+        async_job_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: async_jobs.id (UUID) for async pipeline charges; null for sync endpoint charges
+        endpoint:
+          type: string
+          description: Billing endpoint key (e.g. forecast pipeline type or sync route key)
+    Pagination:
+      type: object
+      required: [page, limit, total, total_pages, sort, order]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          description: 1-indexed current page number echoed back from the request.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+          description: Page size echoed back from the request.
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total matching rows for the authenticated user (full set, not just this page).
+        total_pages:
+          type: integer
+          format: int64
+          minimum: 0
+          description: ceil(total / limit). Zero when total is zero.
+        sort:
+          type: string
+          enum: [id, created_at, eur_cents_charged, units]
+          description: Column the rows are sorted by.
+        order:
+          type: string
+          enum: [asc, desc]
+          description: Sort direction.
+    JobSummary:
+      type: object
+      required: [job_id, pipeline_type, status, created_at, settled]
+      description: Lightweight projection of an async_jobs row (no payload, no manifest).
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        pipeline_type:
+          type: string
+          description: Today only "forecast"; future pipeline types will appear here.
+        status:
+          type: string
+          enum: [queued, running, completed, failed, canceled]
+        created_at:
+          type: string
+          format: date-time
+        settled:
+          type: boolean
+          description: True iff the job has reached a terminal state and been billed.
+        settled_at:
+          type: string
+          format: date-time
+          nullable: true
+        eur_cents_final:
+          type: integer
+          format: int64
+          nullable: true
+          description: Final settled charge for the job, in EUR cents. Null until settled.
+        terminal_reason:
+          type: string
+          nullable: true
+        workflow_id:
+          type: string
+          description: Temporal workflow id (omitted for jobs that haven't started yet).
+        run_id:
+          type: string
+          description: Temporal first-run id (omitted for jobs that haven't started yet).
+    JobsPagination:
+      type: object
+      required: [page, limit, total, total_pages, sort, order]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        total_pages:
+          type: integer
+          format: int64
+          minimum: 0
+        sort:
+          type: string
+          enum: [id, created_at, settled_at, eur_cents_final]
+        order:
+          type: string
+          enum: [asc, desc]
+    ForecastRequestV1:
+      type: object
+      required:
+        - pipeline_version
+        - horizon
+        - frequency
+        - recency_factor
+        - timeseries_metadata
+        - timeseries
+      properties:
+        pipeline_version:
+          type: string
+          enum: [v1]
+          description: Pipeline version. Closed set; no aliases or "latest" resolution. Only v1 is supported today.
+        horizon:
+          type: integer
+          minimum: 1
+          maximum: 12
+          description: Number of forecast steps to produce.
+        frequency:
+          type: string
+          enum: [monthly]
+          description: Series cadence. Only "monthly" is currently supported; "daily" and "weekly" are reserved.
+        backtest:
+          type: boolean
+          description: When true, run a backtest evaluation alongside the forecast.
+        recency_factor:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+        strictly_positive:
+          type: boolean
+          default: false
+          description: |
+            When true, every value in `timeseries` must be `>= 0` (zero is
+            allowed); a single negative observation rejects the request
+            with 422. The downstream forecasting pipeline (PPL) also clamps
+            the produced forecast at zero so no output point can be
+            negative. Defaults to false, in which case no positivity
+            constraint is applied to inputs or outputs and negative values
+            are returned unchanged. Optional.
+        timeseries_metadata:
+          $ref: '#/components/schemas/TimeseriesMetadata'
+        filters:
+          $ref: '#/components/schemas/Filters'
+        timeseries:
+          type: object
+          additionalProperties:
+            type: number
+          description: Map of YYYY-MM-DD date keys to numeric observation values. Must contain at least 60 points (5 years of monthly history) and be aligned to the declared frequency.
+    RecommendRequestV1:
+      type: object
+      required:
+        - version
+        - recency_factor
+        - timeseries_metadata
+      description: |
+        Body of `POST /api/v1/drivers`. Mirrors the upstream Recommend service
+        contract. Note that the version field is named `version` (not
+        `pipeline_version` as on `/forecasts`).
+
+        Required fields: `version`, `recency_factor`, `timeseries_metadata`.
+        Both `filters` and `timeseries` are optional on the recommend
+        endpoint — when omitted, the handler drops them from the upstream
+        payload entirely (no `null` is sent).
+      properties:
+        version:
+          type: string
+          enum: [v1]
+          description: |
+            Recommend pipeline version. Closed set; only v1 is supported today.
+            Used **locally** to select the per-version validator and is **not
+            forwarded** to the upstream Recommend service.
+        recency_factor:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+        timeseries_metadata:
+          $ref: '#/components/schemas/TimeseriesMetadata'
+        filters:
+          $ref: '#/components/schemas/Filters'
+        timeseries:
+          type: object
+          additionalProperties:
+            type: number
+          description: |
+            Optional. Map of YYYY-MM-DD date keys to numeric observation values.
+            When supplied, all keys must parse as YYYY-MM-DD and all values must
+            be finite. Unlike `/forecasts`, this endpoint is frequency-agnostic
+            — there is no monthly alignment, gap detection, or 60-point minimum.
+            When omitted, the handler does not forward the field to the upstream
+            Recommend service at all.
+    TimeseriesMetadata:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 20
+          maxLength: 511
+        description:
+          type: string
+          maxLength: 2048
+        keywords:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 255
+    Filters:
+      type: object
+      properties:
+        categories:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+            maximum: 9999
+        regions:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+            maximum: 9999
+        limit:
+          type: integer
+          minimum: 0
+          maximum: 1000
+    ValidationErrorResponse:
+      type: object
+      required: [error, details]
+      properties:
+        error:
+          type: string
+          enum: [validation_failed]
+        details:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+    ForecastArtifactMeta:
+      type: object
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        content_type:
+          type: string
+        href:
+          type: string
+    APIKeySummary:
+      type: object
+      required: [id, user_id, name, key_prefix, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        key_prefix:
+          type: string
+        created_at:
+          type: string
+          description: ISO-8601 timestamp text from the database
+    CreateAPIKeyResponse:
+      type: object
+      required: [api_key, id, name, prefix, warning]
+      properties:
+        api_key:
+          type: string
+          description: Full secret key; shown only on create
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          description: Public prefix of the key (same semantics as key_prefix on list)
+        warning:
+          type: string
+    ForecastAcceptedResponse:
+      type: object
+      required: [job_id, poll_url]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        poll_url:
+          type: string
+        workflow:
+          type: string
+          description: Temporal workflow id or dev mock identifier; omitted in some degraded paths
+        run_id:
+          type: string
+          description: Temporal run id; omitted when Temporal is disabled or not yet assigned
+    ForecastJobResponse:
+      type: object
+      required: [job_id, status, pipeline_type, created_at, settled]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running, completed, failed, canceled]
+        pipeline_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        settled_at:
+          type: string
+          format: date-time
+          nullable: true
+        eur_cents_final:
+          type: integer
+          format: int64
+          nullable: true
+          description: Final charge in EUR cents when settled; null until then
+        settled:
+          type: boolean
+        workflow_id:
+          type: string
+          description: Present when the job has a Temporal workflow id assigned
+        run_id:
+          type: string
+          description: Present when the job has a Temporal run id assigned
+        terminal_reason:
+          type: string
+          nullable: true
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ForecastArtifactMeta'
+          description: Present only for completed settled jobs with discoverable outputs
+        pipeline_error:
+          description: |
+            Present for some settled failed or canceled jobs when `error.json` exists
+            under `forecasts/{id}/` or `forecasts/{id}/output/` in the artifact bucket.
+            Omitted when missing or unreadable (bodies larger than 64 KiB are skipped).
+            The pipeline may emit a JSON object or array; clients should treat this as
+            opaque diagnostic JSON.
+          nullable: true
+          type: object
+          additionalProperties: true

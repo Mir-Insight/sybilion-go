@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: go test
+        run: go test ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: example build
+        working-directory: example
+        run: go build ./...
+
+  verify-openapi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Regenerate and check drift
+        run: bash scripts/sdk-verify-go.sh
