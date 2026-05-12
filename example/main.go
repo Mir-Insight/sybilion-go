@@ -1,5 +1,4 @@
-// Command example is a minimal consumer of the Go SDK (same pattern as an external app
-// using a go.mod replace to this repo). It calls GET /api/v1/me.
+// Command example is a minimal consumer of the Sybilion Go SDK. It calls GET /api/v1/me.
 package main
 
 import (
@@ -8,16 +7,16 @@ import (
 	"log"
 	"os"
 
-	devportalclient "github.com/Mir-Insight/developers-portal-api-sdk-go"
+	"go.sybilion.dev/sybilion"
 )
 
 func main() {
-	token := os.Getenv("OPERATIONAL_API_TOKEN")
+	token := os.Getenv("SYBILION_API_TOKEN")
 	if token == "" {
-		log.Fatal("OPERATIONAL_API_TOKEN is required (see .env.example)")
+		log.Fatal("SYBILION_API_TOKEN is required (see .env.example)")
 	}
 
-	c := devportalclient.New(devportalclient.Options{Token: token})
+	c := sybilion.New(sybilion.Options{Token: token})
 	me, _, err := c.DefaultAPI().ApiV1MeGet(context.Background()).Execute()
 	if err != nil {
 		log.Fatal(err)

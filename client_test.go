@@ -1,4 +1,4 @@
-package devportalclient
+package sybilion
 
 import (
 	"context"

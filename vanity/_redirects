@@ -1,0 +1,4 @@
+# Cloudflare Pages / Netlify-style redirects.
+# Any path under go.sybilion.dev/* serves the same vanity index.html so the
+# Go toolchain finds the meta tags regardless of the import sub-path.
+/*  /index.html  200

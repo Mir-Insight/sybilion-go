@@ -1,22 +1,22 @@
-package devportalclient
+package sybilion
 
 import (
 	"context"
 
-	devportal "github.com/Mir-Insight/developers-portal-api-sdk-go/gen"
+	api "go.sybilion.dev/sybilion/api"
 )
 
 // UsagePageFunc is called for each page of GET /api/v1/usage. Return false to stop iteration.
-type UsagePageFunc func(ctx context.Context, page *devportal.ApiV1UsageGet200Response) (continueNext bool, err error)
+type UsagePageFunc func(ctx context.Context, page *api.ApiV1UsageGet200Response) (continueNext bool, err error)
 
 // ForEachUsagePage walks usage from page 1 until the callback returns false or pages are exhausted.
-func ForEachUsagePage(ctx context.Context, api *devportal.DefaultAPIService, sort string, order string, limit int32, fn UsagePageFunc) error {
+func ForEachUsagePage(ctx context.Context, defaultAPI *api.DefaultAPIService, sort string, order string, limit int32, fn UsagePageFunc) error {
 	if limit <= 0 {
 		limit = 50
 	}
 	page := int32(1)
 	for {
-		resp, _, err := api.ApiV1UsageGet(ctx).Page(page).Limit(limit).Sort(sort).Order(order).Execute()
+		resp, _, err := defaultAPI.ApiV1UsageGet(ctx).Page(page).Limit(limit).Sort(sort).Order(order).Execute()
 		if err != nil {
 			return err
 		}
@@ -36,16 +36,16 @@ func ForEachUsagePage(ctx context.Context, api *devportal.DefaultAPIService, sor
 }
 
 // JobsPageFunc is called for each page of GET /api/v1/jobs.
-type JobsPageFunc func(ctx context.Context, page *devportal.ApiV1JobsGet200Response) (continueNext bool, err error)
+type JobsPageFunc func(ctx context.Context, page *api.ApiV1JobsGet200Response) (continueNext bool, err error)
 
 // ForEachJobsPage walks job pages from page 1 until the callback returns false or pages are exhausted.
-func ForEachJobsPage(ctx context.Context, api *devportal.DefaultAPIService, sort string, order string, limit int32, fn JobsPageFunc) error {
+func ForEachJobsPage(ctx context.Context, defaultAPI *api.DefaultAPIService, sort string, order string, limit int32, fn JobsPageFunc) error {
 	if limit <= 0 {
 		limit = 50
 	}
 	page := int32(1)
 	for {
-		resp, _, err := api.ApiV1JobsGet(ctx).Page(page).Limit(limit).Sort(sort).Order(order).Execute()
+		resp, _, err := defaultAPI.ApiV1JobsGet(ctx).Page(page).Limit(limit).Sort(sort).Order(order).Execute()
 		if err != nil {
 			return err
 		}

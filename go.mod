@@ -1,3 +1,3 @@
-module github.com/Mir-Insight/developers-portal-api-sdk-go
+module go.sybilion.dev/sybilion
 
 go 1.25.10

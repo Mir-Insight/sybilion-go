@@ -9,7 +9,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 API="${DEVELOPERS_PORTAL_API_ROOT:-$(cd "${ROOT}/.." && pwd)/developers-portal-api}"
-MOD="github.com/Mir-Insight/developers-portal-api-sdk-go"
+MOD="go.sybilion.dev/sybilion"
 
 if [[ ! -d "${API}/sdks/go" ]]; then
   echo "sync-from-api-repo: missing ${API}/sdks/go (set DEVELOPERS_PORTAL_API_ROOT)" >&2
@@ -23,25 +23,28 @@ rsync -a --delete \
   --exclude 'CONTRIBUTING.md' \
   --exclude 'LICENSE' \
   --exclude 'SECURITY.md' \
+  --exclude 'PUBLISHING.md' \
   --exclude 'Makefile' \
+  --exclude 'go.mod' \
+  --exclude 'go.sum' \
   --exclude '.gitignore' \
   --exclude '.github' \
   --exclude 'cmd' \
   --exclude 'scripts' \
   --exclude 'openapi' \
+  --exclude 'vanity' \
   "${API}/sdks/go/" "${ROOT}/"
 mkdir -p "${ROOT}/openapi"
-cp "${API}/internal/httpapi/openapi/openapi.yaml" "${ROOT}/openapi/openapi.yaml"
+cp "${API}/internal/httpapi/openapi/openapi.public.yaml" "${ROOT}/openapi/openapi.yaml"
 cp "${API}/sdks/defaults.json" "${ROOT}/defaults.json"
 
-find "${ROOT}" -maxdepth 3 -name '*.go' -type f -exec sed -i "s|ops-api/sdks/go|${MOD}|g" {} +
-sed -i "s|^module ops-api/sdks/go\$|module ${MOD}|" "${ROOT}/go.mod"
-sed -i "s|^module ops-api/sdks/go/example\$|module ${MOD}/example|" "${ROOT}/example/go.mod"
-sed -i "s|require ops-api/sdks/go v0.0.0|require ${MOD} v0.0.0|" "${ROOT}/example/go.mod"
-sed -i "s|replace ops-api/sdks/go => ..|replace ${MOD} => ..|" "${ROOT}/example/go.mod"
-sed -i "s|ops-api/sdks/go|${MOD}|g" "${ROOT}/example/main.go"
-if [[ -d "${ROOT}/gen/docs" ]]; then
-  find "${ROOT}/gen/docs" -name '*.md' -type f -exec sed -i "s|github.com/GIT_USER_ID/GIT_REPO_ID|${MOD}/gen|g" {} +
+# Rewrite any leftover monorepo import paths to the published module path.
+find "${ROOT}" -maxdepth 3 -name '*.go' -type f -print0 \
+  | xargs -0 perl -pi -e "s|ops-api/sdks/go|${MOD}|g"
+perl -pi -e "s|ops-api/sdks/go|${MOD}|g" "${ROOT}/example/main.go"
+if [[ -d "${ROOT}/api/docs" ]]; then
+  find "${ROOT}/api/docs" -name '*.md' -type f -print0 \
+    | xargs -0 perl -pi -e "s|github.com/GIT_USER_ID/GIT_REPO_ID|${MOD}/api|g"
 fi
 
 (cd "${ROOT}" && go run ./cmd/embed-go-defaults)

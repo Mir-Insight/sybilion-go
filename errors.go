@@ -1,10 +1,10 @@
-package devportalclient
+package sybilion
 
 import (
 	"errors"
 	"fmt"
 
-	devportal "github.com/Mir-Insight/developers-portal-api-sdk-go/gen"
+	api "go.sybilion.dev/sybilion/api"
 )
 
 // APIError wraps a non-2xx API response when the body could not be decoded into a typed model.
@@ -22,8 +22,8 @@ func (e *APIError) Error() string {
 }
 
 // AsGenericOpenAPIError unwraps openapi-generator's GenericOpenAPIError when possible.
-func AsGenericOpenAPIError(err error) (*devportal.GenericOpenAPIError, bool) {
-	var ge *devportal.GenericOpenAPIError
+func AsGenericOpenAPIError(err error) (*api.GenericOpenAPIError, bool) {
+	var ge *api.GenericOpenAPIError
 	if errors.As(err, &ge) {
 		return ge, true
 	}

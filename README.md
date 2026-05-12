@@ -1,85 +1,62 @@
-# Developers Portal — Go SDK
+# Sybilion Go SDK
 
-Official Go client for the **Operational API**. Generated from OpenAPI; thin `devportalclient` wrapper in the module root, low-level types in `gen/`.
-
-**Module:** `github.com/Mir-Insight/developers-portal-api-sdk-go`  
-**Requires Go:** see [`go.mod`](./go.mod) (currently 1.25.x).
-
-## Install
+Official Go client for the [Sybilion API](https://docs.sybilion.com).
 
 ```bash
-go get github.com/Mir-Insight/developers-portal-api-sdk-go@latest
+go get go.sybilion.dev/sybilion@latest
 ```
+
+Requires Go 1.25+.
 
 ## Quick use
 
 ```go
-import (
-  "context"
-  "os"
+package main
 
-  devportalclient "github.com/Mir-Insight/developers-portal-api-sdk-go"
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+
+	"go.sybilion.dev/sybilion"
 )
 
 func main() {
-  ctx := context.Background()
-  c := devportalclient.New(devportalclient.Options{
-    Token: os.Getenv("OPERATIONAL_API_TOKEN"),
-  })
-  me, _, err := c.DefaultAPI().ApiV1MeGet(ctx).Execute()
-  _ = me
-  _ = err
+	c := sybilion.New(sybilion.Options{
+		Token: os.Getenv("SYBILION_API_TOKEN"),
+	})
+
+	me, _, err := c.DefaultAPI().ApiV1MeGet(context.Background()).Execute()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(me.GetUserId(), me.GetAvailableEurCents(), me.GetApiUsageTier())
 }
 ```
 
-| Variable | Purpose |
-|----------|---------|
-| **`OPERATIONAL_API_TOKEN`** | Convention for apps: Bearer token (`sk_ops_...` or Auth0). Pass into `Options.Token` (not read automatically by the SDK). |
-| **`OPERATIONAL_API_BASE_URL`** | Optional API origin when `Options.BaseURL` is empty. |
+The token is an API key (`sk_ops_...`) created in the Developers Portal, or a dashboard session token. The default base URL is `https://api.sybilion.dev`; override per-process with `SYBILION_API_BASE_URL` or per-call via `Options.BaseURL`.
 
-**Default base URL** when unset: `devportalclient.DefaultPublicAPIBaseURL` in [`defaults_gen.go`](./defaults_gen.go), built from [`defaults.json`](./defaults.json) at generation time.
+## What's in the box
 
-## Docs
+- `sybilion.Client` — Bearer auth, ergonomic helpers.
+- `c.Forecasts().Wait(ctx, jobID, poll)` — polls `GET /api/v1/forecasts/{id}` until settled.
+- `sybilion.ForEachUsagePage` / `ForEachJobsPage` — paginated iterators.
+- `c.DefaultAPI()` — escape hatch to the OpenAPI-generated client at `go.sybilion.dev/sybilion/api`.
+- `sybilion.AsGenericOpenAPIError(err)` — typed error unwrap.
 
-- Human overview (all languages): [developers-portal-api `docs/SDK.md`](https://github.com/Mir-Insight/developers-portal-api/blob/master/docs/SDK.md) (paths may vary by branch).
-- **LLM / codegen cheat sheet:** [`LLM_SDK_GUIDE.md`](./LLM_SDK_GUIDE.md).
+## Documentation
 
-## Runnable example
+Full guides, feature walkthroughs, API reference, and SDK patterns: **<https://docs.sybilion.com>**.
 
-See [`example/README.md`](./example/README.md).
+For LLM / codegen contexts the single-file cheat sheet lives at [`LLM_SDK_GUIDE.md`](./LLM_SDK_GUIDE.md).
 
-## Versioning and releases
+## Support
 
-This module uses **semantic versioning** (`v0`, `v1`, …). The API server and SDK versions are **not** locked 1:1; see [`CHANGELOG.md`](./CHANGELOG.md) for breaking changes and compatibility notes.
+- Email — [support@sybilion.com](mailto:support@sybilion.com)
+- Slack — [Sybilion Community](https://join.slack.com/t/sybilioncommunity/shared_invite/zt-3y6vx56nk-WJu35eLxkyFQr~Yfko6RjQ)
+- Discord — [Sybilion Developers Community](https://discord.gg/CEpEvUB7)
 
-**Publishing to the Go module proxy:** create and push a **semver git tag** on the default branch (for example `v0.1.0`). The [release workflow](.github/workflows/release.yml) runs tests and `sdk-verify-go` on each `v*.*.*` tag and opens a GitHub release (with generated notes). After the tag is public, consumers run `go get github.com/Mir-Insight/developers-portal-api-sdk-go@v0.1.0`.
+## License
 
-### Migrating from the monorepo path `ops-api/sdks/go`
-
-If you previously used:
-
-```go
-import devportalclient "ops-api/sdks/go"
-```
-
-with a `replace` in `go.mod`, switch to:
-
-```go
-import devportalclient "github.com/Mir-Insight/developers-portal-api-sdk-go"
-```
-
-Remove the `replace` directive and run `go get github.com/Mir-Insight/developers-portal-api-sdk-go@<version>`.
-
-## Wire contract
-
-The canonical OpenAPI document lives in [`developers-portal-api`](https://github.com/Mir-Insight/developers-portal-api). This repository **vendors a snapshot** at [`openapi/openapi.yaml`](./openapi/openapi.yaml). CI regenerates `gen/` and fails if the result does not match git (no drift).
-
-Maintainers can refresh code from a local API checkout:
-
-```bash
-DEVELOPERS_PORTAL_API_ROOT=/path/to/developers-portal-api bash scripts/sync-from-api-repo.sh
-```
-
-## Changelog
-
-See [`CHANGELOG.md`](./CHANGELOG.md).
+[Apache 2.0](LICENSE).
