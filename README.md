@@ -48,9 +48,11 @@ func main() {
 
 See [`example/README.md`](./example/README.md).
 
-## Versioning
+## Versioning and releases
 
 This module uses **semantic versioning** (`v0`, `v1`, …). The API server and SDK versions are **not** locked 1:1; see [`CHANGELOG.md`](./CHANGELOG.md) for breaking changes and compatibility notes.
+
+**Publishing to the Go module proxy:** create and push a **semver git tag** on the default branch (for example `v0.1.0`). The [release workflow](.github/workflows/release.yml) runs tests and `sdk-verify-go` on each `v*.*.*` tag and opens a GitHub release (with generated notes). After the tag is public, consumers run `go get github.com/Mir-Insight/developers-portal-api-sdk-go@v0.1.0`.
 
 ### Migrating from the monorepo path `ops-api/sdks/go`
 
