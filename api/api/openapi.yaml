@@ -633,7 +633,7 @@ components:
             pipeline falls back to a driverless forecast at `soft_horizon` if no quality run succeeds.
             When still failing at `hard_horizon`, the pipeline emits a driverless forecast at that horizon.
             At least one of `soft_horizon` or `hard_horizon` must be present. When both are set,
-            `hard_horizon` must be strictly less than `soft_horizon`. Maximum 12.
+            `hard_horizon` must be less than or equal to `soft_horizon`. Maximum 12.
           maximum: 12
           minimum: 1
           type: integer
@@ -653,7 +653,7 @@ components:
             Ideal forecast horizon (months). The pipeline tries this first, then steps down by one month
             until it reaches `hard_horizon` (when set) while seeking a quality forecast. At least one of
             `soft_horizon` or `hard_horizon` must be present. When both are set, `hard_horizon` must be
-            strictly less than `soft_horizon`. Maximum 12.
+            less than or equal to `soft_horizon`. Maximum 12.
           maximum: 12
           minimum: 1
           type: integer

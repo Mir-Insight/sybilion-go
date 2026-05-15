@@ -27,12 +27,12 @@ type ForecastRequestV1 struct {
 	Filters *Filters `json:"filters,omitempty"`
 	// Series cadence. Only \"monthly\" is currently supported; \"daily\" and \"weekly\" are reserved.
 	Frequency string `json:"frequency"`
-	// Minimum acceptable horizon (months) for the quality step-down ladder. When omitted, the pipeline falls back to a driverless forecast at `soft_horizon` if no quality run succeeds. When still failing at `hard_horizon`, the pipeline emits a driverless forecast at that horizon. At least one of `soft_horizon` or `hard_horizon` must be present. When both are set, `hard_horizon` must be strictly less than `soft_horizon`. Maximum 12. 
+	// Minimum acceptable horizon (months) for the quality step-down ladder. When omitted, the pipeline falls back to a driverless forecast at `soft_horizon` if no quality run succeeds. When still failing at `hard_horizon`, the pipeline emits a driverless forecast at that horizon. At least one of `soft_horizon` or `hard_horizon` must be present. When both are set, `hard_horizon` must be less than or equal to `soft_horizon`. Maximum 12. 
 	HardHorizon *int32 `json:"hard_horizon,omitempty"`
 	// Pipeline version. Closed set; no aliases or \"latest\" resolution. Only v1 is supported today.
 	PipelineVersion string `json:"pipeline_version"`
 	RecencyFactor float64 `json:"recency_factor"`
-	// Ideal forecast horizon (months). The pipeline tries this first, then steps down by one month until it reaches `hard_horizon` (when set) while seeking a quality forecast. At least one of `soft_horizon` or `hard_horizon` must be present. When both are set, `hard_horizon` must be strictly less than `soft_horizon`. Maximum 12. 
+	// Ideal forecast horizon (months). The pipeline tries this first, then steps down by one month until it reaches `hard_horizon` (when set) while seeking a quality forecast. At least one of `soft_horizon` or `hard_horizon` must be present. When both are set, `hard_horizon` must be less than or equal to `soft_horizon`. Maximum 12. 
 	SoftHorizon *int32 `json:"soft_horizon,omitempty"`
 	// When true, every value in `timeseries` must be `>= 0` (zero is allowed); a single negative observation rejects the request with 422. The downstream forecasting pipeline (PPL) also clamps the produced forecast at zero so no output point can be negative. Defaults to false, in which case no positivity constraint is applied to inputs or outputs and negative values are returned unchanged. Optional. 
 	StrictlyPositive *bool `json:"strictly_positive,omitempty"`
